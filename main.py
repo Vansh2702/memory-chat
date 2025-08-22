@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, Form, Query
+from fastapi import FastAPI, Form, Query, UploadFile, File
 from db import init_db, SessionLocal
 from sqlalchemy import text
 from typing import Optional
@@ -9,6 +9,9 @@ from sentence_transformers.util import cos_sim
 from pydantic import BaseModel
 import os
 import boto3
+import fitz  # PyMuPDF
+import uuid
+from sqlalchemy import text as sql_text  
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -77,7 +80,7 @@ def get_top_k_context(query: str, k: int = 3):
         scored.append((sim, row[1]))
 
     scored.sort(reverse=True)
-    top_notes = [text for _, text in scored[:k]]
+    top_notes = [note for _, note in scored[:k]]
     return top_notes
 
 bedrock = boto3.client("bedrock-runtime", region_name=os.getenv("AWS_REGION", "us-east-1"))
@@ -105,3 +108,46 @@ def chat_with_claude(input: SearchQuery):
 
     response_body = json.loads(response['body'].read())
     return {"answer": response_body['content'][0]['text']}
+
+
+@app.post("/upload-file")
+async def upload_file(file: UploadFile = File(...)):
+    extension = file.filename.split(".")[-1].lower()
+    file_text = ""
+
+    # Read and extract text based on file type
+    if extension == "txt":
+        file_text = (await file.read()).decode("utf-8")
+
+    elif extension == "pdf":
+        tmp_path = f"/tmp/{uuid.uuid4()}.pdf"
+        with open(tmp_path, "wb") as tmp:
+            tmp.write(await file.read())
+
+        with fitz.open(tmp_path) as doc:
+            for page in doc:
+                file_text += page.get_text()
+
+        os.remove(tmp_path)
+
+    else:
+        return {"error": f"Unsupported file type: {extension}"}
+
+    # Split text into ~600-character chunks
+    chunks = [file_text[i:i+600] for i in range(0, len(file_text), 600)]
+
+    for chunk in chunks:
+        embedding = model.encode(chunk).tolist()
+        with SessionLocal() as session:
+            session.execute(
+                sql_text("INSERT INTO notes (content, embedding, source) VALUES (:content, :embedding, :source)"),
+                {"content": chunk, "embedding": json.dumps(embedding), "source": file.filename}
+            )
+            session.commit()
+
+    return {
+        "status": "file processed",
+        "file": file.filename,
+        "chunks_stored": len(chunks)
+    }
+
