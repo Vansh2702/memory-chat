@@ -7,6 +7,7 @@ authors = [{ name = "Vansh Parmar" }]
 dependencies = [
     "aiosqlite>=0.21.0",
     "fastapi>=0.116.1",
+    "python-multipart>=0.0.20",
     "sentence-transformers>=5.1.0",
     "sqlalchemy>=2.0.43",
     "streamlit>=1.48.1",
