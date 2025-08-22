@@ -12,6 +12,7 @@ def init_db():
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS notes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                content TEXT NOT NULL
+                content TEXT NOT NULL,
+                embedding TEXT  -- stores vector as JSON string
             );
         """))
